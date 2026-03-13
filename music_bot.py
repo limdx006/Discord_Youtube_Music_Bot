@@ -92,7 +92,7 @@ except ImportError:
     )
 
 PREFIX = "!"
-VOLUME = 0.5
+VOLUME = 0.2
 
 YDL_OPTS = {
     "format": "bestaudio/best",
