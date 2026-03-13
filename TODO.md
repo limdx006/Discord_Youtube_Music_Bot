@@ -3,8 +3,8 @@ Need to implement:
 - [ ] Seperate the function to make the code looks clean
 - [x] Add a feature to !shuffle
 - [x] Add a feature that can continewously play music
-- [ ]
-- [ ]
+- [ ] Playlist
+- [ ] Repeat feature
 - [ ]
 - [ ]
 - [ ]
