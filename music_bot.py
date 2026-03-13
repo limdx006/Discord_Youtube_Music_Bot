@@ -138,6 +138,7 @@ def get_state(guild_id):
             "prefetched":   None,    # next track with stream URL already resolved
             "autoplay":     False,   # auto-queue related songs when queue runs out
             "last_webpage": None,    # webpage_url of last played song for autoplay seed
+            "recent_played": [],     # list of video IDs played recently (avoid repeats)
         }
     return guild_state[guild_id]
 
@@ -191,20 +192,17 @@ async def fetch_playlist(url: str) -> list:
             return []
 
 
-async def fetch_related(webpage_url: str) -> dict | None:
-    """Fetch one related/recommended YouTube video from a given video URL."""
+async def fetch_related(webpage_url: str, exclude_ids: list = None) -> dict | None:
+    """Fetch a related YouTube video, skipping any IDs in exclude_ids to avoid loops."""
     loop = asyncio.get_event_loop()
-    # yt-dlp can extract the "ytsearch" from related — we use the flat playlist
-    # trick: YouTube's watch page exposes a related list we can scrape
+    exclude_ids = exclude_ids or []
     YDL_RELATED = {
-        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'extract_flat': True,
-        'playlistend': 5,       # grab first 5 related candidates
+        'playlistend': 25,   # fetch more candidates so we have room to skip recent ones
     }
     try:
-        # YouTube appends &list=RD<videoId> to create an auto-radio playlist
         vid_id = webpage_url.split('v=')[-1].split('&')[0]
         radio_url = f"https://www.youtube.com/watch?v={vid_id}&list=RD{vid_id}"
         with yt_dlp.YoutubeDL(YDL_RELATED) as ydl:
@@ -214,7 +212,22 @@ async def fetch_related(webpage_url: str) -> dict | None:
         if not info:
             return None
         entries = info.get('entries', [])
-        # Skip the first entry (it's the seed song itself), pick the next one
+        # Skip entry[0] (seed song) and any recently played IDs
+        for e in entries[1:]:
+            if not e or not e.get('id'):
+                continue
+            if e['id'] in exclude_ids:
+                log(f"Autoplay skipping recently played: {e.get('title', e['id'])}", "info")
+                continue
+            return {
+                'title':          e.get('title', 'Unknown'),
+                'duration':       e.get('duration', 0),
+                'webpage_url':    f"https://www.youtube.com/watch?v={e['id']}",
+                'url':            f"https://www.youtube.com/watch?v={e['id']}",
+                '_needs_resolve': True,
+            }
+        # All candidates were recently played — fall back to the first non-seed entry
+        log("Autoplay: all related songs recently played, looping back.", "warn")
         for e in entries[1:]:
             if e and e.get('id'):
                 return {
@@ -285,7 +298,7 @@ def play_next(guild_id, vc, ctx):
         if state.get("autoplay") and state.get("last_webpage"):
             log("Queue empty — autoplay fetching related song...", "info")
             async def _autoplay():
-                related = await fetch_related(state["last_webpage"])
+                related = await fetch_related(state["last_webpage"], exclude_ids=list(state.get("recent_played", [])))
                 if related:
                     resolved = await resolve_stream(related)
                     state["queue"].append(resolved)
@@ -336,9 +349,15 @@ def _start_playback(guild_id, vc, ctx, info):
         "artist": info.get("artist", info.get("channel", "Unknown Artist")),
         "duration": info.get("duration", 0),
     }
-    # Remember for autoplay seeding
+    # Remember for autoplay seeding + track history to avoid loops
     if info.get("webpage_url"):
         state["last_webpage"] = info["webpage_url"]
+        vid_id = info["webpage_url"].split("v=")[-1].split("&")[0]
+        if vid_id and vid_id not in state["recent_played"]:
+            state["recent_played"].append(vid_id)
+        # Keep only last 20 songs so history doesn't grow forever
+        if len(state["recent_played"]) > 20:
+            state["recent_played"].pop(0)
 
     def after_play(error):
         if error:
