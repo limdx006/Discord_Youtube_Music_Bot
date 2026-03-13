@@ -26,7 +26,6 @@ import queue
 import datetime
 import os
 import re
-import random
 from bot_token import (
     BOT_TOKEN,
 )  # Import the bot token from a separate file for security
@@ -133,10 +132,12 @@ def get_state(guild_id):
     # Returns the per-guild state dict, creating it with defaults if it doesn't exist yet
     if guild_id not in guild_state:
         guild_state[guild_id] = {
-            "queue": deque(),
-            "volume": VOLUME,
+            "queue":        deque(),
+            "volume":       VOLUME,
             "current_song": None,
-            "prefetched": None,  # next track with stream URL already resolved
+            "prefetched":   None,    # next track with stream URL already resolved
+            "autoplay":     False,   # auto-queue related songs when queue runs out
+            "last_webpage": None,    # webpage_url of last played song for autoplay seed
         }
     return guild_state[guild_id]
 
@@ -188,6 +189,45 @@ async def fetch_playlist(url: str) -> list:
         except Exception as e:
             log(f"Playlist fetch error: {e}", "error")
             return []
+
+
+async def fetch_related(webpage_url: str) -> dict | None:
+    """Fetch one related/recommended YouTube video from a given video URL."""
+    loop = asyncio.get_event_loop()
+    # yt-dlp can extract the "ytsearch" from related — we use the flat playlist
+    # trick: YouTube's watch page exposes a related list we can scrape
+    YDL_RELATED = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'playlistend': 5,       # grab first 5 related candidates
+    }
+    try:
+        # YouTube appends &list=RD<videoId> to create an auto-radio playlist
+        vid_id = webpage_url.split('v=')[-1].split('&')[0]
+        radio_url = f"https://www.youtube.com/watch?v={vid_id}&list=RD{vid_id}"
+        with yt_dlp.YoutubeDL(YDL_RELATED) as ydl:
+            info = await loop.run_in_executor(
+                None, lambda: ydl.extract_info(radio_url, download=False)
+            )
+        if not info:
+            return None
+        entries = info.get('entries', [])
+        # Skip the first entry (it's the seed song itself), pick the next one
+        for e in entries[1:]:
+            if e and e.get('id'):
+                return {
+                    'title':          e.get('title', 'Unknown'),
+                    'duration':       e.get('duration', 0),
+                    'webpage_url':    f"https://www.youtube.com/watch?v={e['id']}",
+                    'url':            f"https://www.youtube.com/watch?v={e['id']}",
+                    '_needs_resolve': True,
+                }
+        return None
+    except Exception as e:
+        log(f"Autoplay fetch error: {e}", "error")
+        return None
 
 
 async def resolve_stream(info: dict) -> dict:
@@ -242,9 +282,28 @@ def play_next(guild_id, vc, ctx):
     """Dequeue and play the next track. Stream URL must already be resolved."""
     state = get_state(guild_id)
     if not state["queue"]:
-        asyncio.run_coroutine_threadsafe(ctx.send("✅ Queue finished!"), bot.loop)
-        log("Queue finished.", "success")
-        state["current_song"] = None
+        if state.get("autoplay") and state.get("last_webpage"):
+            log("Queue empty — autoplay fetching related song...", "info")
+            async def _autoplay():
+                related = await fetch_related(state["last_webpage"])
+                if related:
+                    resolved = await resolve_stream(related)
+                    state["queue"].append(resolved)
+                    log(f"Autoplay queued: {resolved.get('title', '?')}", "success")
+                    asyncio.run_coroutine_threadsafe(
+                        ctx.send(f"🔁 Autoplay: **{resolved.get('title', '?')}**"), bot.loop
+                    )
+                    play_next(guild_id, vc, ctx)
+                else:
+                    asyncio.run_coroutine_threadsafe(
+                        ctx.send("✅ Queue finished! (Autoplay couldn't find a related song)"), bot.loop
+                    )
+                    state["current_song"] = None
+            asyncio.run_coroutine_threadsafe(_autoplay(), bot.loop)
+        else:
+            asyncio.run_coroutine_threadsafe(ctx.send("✅ Queue finished!"), bot.loop)
+            log("Queue finished.", "success")
+            state["current_song"] = None
         return
 
     info = state["queue"].popleft()
@@ -277,6 +336,9 @@ def _start_playback(guild_id, vc, ctx, info):
         "artist": info.get("artist", info.get("channel", "Unknown Artist")),
         "duration": info.get("duration", 0),
     }
+    # Remember for autoplay seeding
+    if info.get("webpage_url"):
+        state["last_webpage"] = info["webpage_url"]
 
     def after_play(error):
         if error:
@@ -484,21 +546,22 @@ async def nowplaying(ctx):
         await ctx.send("❌ Nothing is playing.")
 
 
-# ── SHUFFLE COMMAND ──────────────────────────────────────────────────────────
+# ── AUTOPLAY COMMAND ─────────────────────────────────────────────────────────
 
-@bot.command(name='shuffle', aliases=['sh'])
-async def shuffle(ctx):
-    """Randomly shuffle the current queue."""
+@bot.command(name="autoplay", aliases=["ap", "radio", "auto"])
+async def autoplay(ctx):
+    """Toggle autoplay mode — bot keeps queuing related songs when queue runs out."""
     state = get_state(ctx.guild.id)
-    if len(state['queue']) < 2:
-        return await ctx.send("❌ Need at least 2 songs in the queue to shuffle.")
-    q_list = list(state['queue'])
-    random.shuffle(q_list)
-    state['queue'] = deque(q_list)
-    # Kick off prefetch for the new first track
-    prefetch_next(ctx.guild.id)
-    log(f"Queue shuffled ({len(q_list)} songs).", "info")
-    await ctx.send(f"🔀 Shuffled **{len(q_list)} songs** in the queue!")
+    state["autoplay"] = not state.get("autoplay", False)
+    if state["autoplay"]:
+        log("Autoplay ON.", "success")
+        await ctx.send(
+            "🔁 **Autoplay ON** — I'll keep queuing related songs when the queue runs out."
+            "Use `!autoplay` again to turn it off."
+        )
+    else:
+        log("Autoplay OFF.", "info")
+        await ctx.send("⏹️ **Autoplay OFF** — queue will stop when empty.")
 
 
 # ── NEW: LYRICS COMMAND ───────────────────────────────────────────────────────

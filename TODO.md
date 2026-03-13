@@ -2,7 +2,7 @@ Need to implement:
 - [ ] Only fetch command from specific chat
 - [ ] Seperate the function to make the code looks clean
 - [x] Add a feature to !shuffle
-- [ ] Add a feature that can continewously play music
+- [x] Add a feature that can continewously play music
 - [ ]
 - [ ]
 - [ ]
