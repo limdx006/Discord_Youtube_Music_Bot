@@ -2,8 +2,8 @@ Need to implement:
 - [ ] Detect if the user is in the voice chat only cna use the command
 - [ ] Only fetch command from specific chat
 - [ ] Seperate the function to make the code looks clean
-- [ ]
-- [ ]
+- [ ] Add a feature to !shuffle
+- [ ] Add a feature that can continewously play music
 - [ ]
 - [ ]
 - [ ]
