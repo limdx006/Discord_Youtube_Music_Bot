@@ -1,0 +1,15 @@
+Need to implement:
+- [ ] Detect if the user is in the voice chat only cna use the command
+- [ ] Only fetch command from specific chat
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]

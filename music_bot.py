@@ -110,8 +110,12 @@ YDL_PLAYLIST_OPTS = {
     "extract_flat": "in_playlist",  # fast: get metadata without downloading each stream URL yet
 }
 FFMPEG_OPTS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",
+    # Reconnect on drop; large probesize/analyzeduration prevents slow start stutter
+    "before_options": (
+        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+        "-probesize 200M -analyzeduration 0"
+    ),
+    "options": "-vn -bufsize 512k",
 }
 
 intents = discord.Intents.none()
@@ -130,7 +134,8 @@ def get_state(guild_id):
         guild_state[guild_id] = {
             "queue": deque(),
             "volume": VOLUME,
-            "current_song": None,  # Store current song info for lyrics
+            "current_song": None,
+            "prefetched": None,  # next track with stream URL already resolved
         }
     return guild_state[guild_id]
 
@@ -184,6 +189,48 @@ async def fetch_playlist(url: str) -> list:
             return []
 
 
+async def resolve_stream(info: dict) -> dict:
+    """Resolve the real stream URL for a track that only has a webpage URL."""
+    if not info.get("_needs_resolve"):
+        return info
+    loop = asyncio.get_event_loop()
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            fresh = await loop.run_in_executor(
+                None, lambda: ydl.extract_info(info["webpage_url"], download=False)
+            )
+            if fresh and "entries" in fresh:
+                fresh = fresh["entries"][0]
+            if fresh:
+                info["url"] = fresh.get("url", info["url"])
+                info["title"] = info.get("title") or fresh.get("title", "Unknown")
+                info["duration"] = info.get("duration") or fresh.get("duration", 0)
+                info["_needs_resolve"] = False
+    except Exception as e:
+        log(f"Stream resolve error: {e}", "error")
+    return info
+
+
+def prefetch_next(guild_id: int):
+    """Fire-and-forget: resolve stream URL of the next queued track in background."""
+    state = get_state(guild_id)
+    q = state["queue"]
+    if not q:
+        return
+    nxt = q[0]  # peek, don't pop
+    if not nxt.get("_needs_resolve"):
+        return  # already resolved or plain search result
+
+    async def _do_prefetch():
+        resolved = await resolve_stream(dict(nxt))
+        # Write resolved fields back into the actual queue entry
+        nxt.update(resolved)
+        state["prefetched"] = nxt
+        log(f"Prefetched: {nxt.get('title', '?')}", "info")
+
+    asyncio.run_coroutine_threadsafe(_do_prefetch(), bot.loop)
+
+
 def make_source(url, volume):
     # Wraps a streaming FFmpeg audio source in a volume transformer at the given level
     source = discord.FFmpegPCMAudio(url, **FFMPEG_OPTS)
@@ -191,33 +238,39 @@ def make_source(url, volume):
 
 
 def play_next(guild_id, vc, ctx):
-    # Dequeues the next song and starts playback, or announces queue completion if empty
+    """Dequeue and play the next track. Stream URL must already be resolved."""
     state = get_state(guild_id)
     if not state["queue"]:
         asyncio.run_coroutine_threadsafe(ctx.send("✅ Queue finished!"), bot.loop)
         log("Queue finished.", "success")
         state["current_song"] = None
         return
+
     info = state["queue"].popleft()
+    state["prefetched"] = None
 
-    # Playlist tracks only have the webpage URL — resolve the real stream URL now
+    # If still unresolved (shouldn't happen with prefetch, but fallback via async)
     if info.get("_needs_resolve"):
-        try:
-            with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-                fresh = ydl.extract_info(info["webpage_url"], download=False)
-                if fresh and "entries" in fresh:
-                    fresh = fresh["entries"][0]
-                if fresh:
-                    info["url"] = fresh.get("url", info["url"])
-                    info["title"] = info.get("title") or fresh.get("title", "Unknown")
-                    info["duration"] = info.get("duration") or fresh.get("duration", 0)
-                    info["_needs_resolve"] = False
-        except Exception as e:
-            log(f"Stream resolve error: {e}", "error")
+        log(
+            f"Stream not prefetched yet for '{info.get('title')}', resolving now...",
+            "warn",
+        )
 
+        async def _resolve_then_play():
+            resolved = await resolve_stream(info)
+            _start_playback(guild_id, vc, ctx, resolved)
+
+        asyncio.run_coroutine_threadsafe(_resolve_then_play(), bot.loop)
+        return
+
+    _start_playback(guild_id, vc, ctx, info)
+
+
+def _start_playback(guild_id, vc, ctx, info):
+    """Actually start playing a fully-resolved track and kick off prefetch of the next one."""
+    state = get_state(guild_id)
     url = info["url"]
 
-    # Store current song info for lyrics command
     state["current_song"] = {
         "title": info.get("title", "Unknown"),
         "artist": info.get("artist", info.get("channel", "Unknown Artist")),
@@ -225,13 +278,13 @@ def play_next(guild_id, vc, ctx):
     }
 
     def after_play(error):
-        # Callback fired when a track ends; logs any error then advances to the next song
         if error:
             log(f"Player error: {error}", "error")
         play_next(guild_id, vc, ctx)
 
     source = make_source(url, state["volume"])
     vc.play(source, after=after_play)
+
     duration = info.get("duration", 0)
     mins, secs = divmod(int(duration), 60)
     title = info.get("title", "?")
@@ -239,6 +292,9 @@ def play_next(guild_id, vc, ctx):
     asyncio.run_coroutine_threadsafe(
         ctx.send(f"🎵 Now playing: **{title}** `[{mins}:{secs:02d}]`"), bot.loop
     )
+
+    # Kick off background prefetch of the NEXT track so it's ready instantly
+    prefetch_next(guild_id)
 
 
 @bot.event
