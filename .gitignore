@@ -1,3 +1,6 @@
 bot_token.py
 /__pycache__
 *.pyc
+commands/__pycache__/__init__.cpython-312.pyc
+commands/__pycache__/help.cpython-312.pyc
+commands/__pycache__/stop.cpython-312.pyc
