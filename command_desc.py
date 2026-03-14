@@ -11,4 +11,5 @@ COMMAND_DESCRIPTIONS = {
     'shuffle': 'Randomly shuffle the current queue.',
     'lyrics': 'Fetch lyrics for current song or search term.',
     'help': 'Show this help message or details for a specific command.',
+    'list': 'Create and manage custom song playlists.',
 }

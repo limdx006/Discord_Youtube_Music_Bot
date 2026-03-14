@@ -10,3 +10,4 @@ from .leave import setup_leave
 from .autoplay import setup_autoplay
 from .shuffle import setup_shuffle
 from .lyrics import setup_lyrics
+from .list_cmd import setup_list

@@ -429,7 +429,7 @@ setup_leave(bot, get_state, log)
 setup_autoplay(bot, get_state, log)
 setup_shuffle(bot, get_state, log, prefetch_next)
 setup_lyrics(bot, get_state, log, LYRICS_AVAILABLE)
-
+setup_list(bot, get_state, log, play_next, fetch_info, PREFIX) 
 
 # ── GUI ───────────────────────────────────────────────────────────────────────
 

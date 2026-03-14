@@ -6,7 +6,7 @@ def setup_lyrics(bot, get_state, log, LYRICS_AVAILABLE):
     Sets up the lyrics command.
     """
     
-    @bot.command(name="lyrics", aliases=["ly", "l"])
+    @bot.command(name="lyrics", aliases=["ly"])
     async def lyrics(ctx, *, query: str = None):
         """
         Fetch and display lyrics for the currently playing song or a specific search query.
