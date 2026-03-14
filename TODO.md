@@ -3,10 +3,10 @@ Need to implement:
 - [x] Seperate the function to make the code looks clean
 - [x] Add a feature to !shuffle
 - [x] Add a feature that can continewously play music
-- [ ] Playlist
+- [x] Playlist
 - [ ] Repeat feature
 - [x] !help to show all commands
-- [ ]
+- [ ] Add remove playlist name
 - [ ]
 - [ ]
 - [ ]
