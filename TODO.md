@@ -1,11 +1,11 @@
 Need to implement:
 - [ ] Only fetch command from specific chat
-- [ ] Seperate the function to make the code looks clean
+- [x] Seperate the function to make the code looks clean
 - [x] Add a feature to !shuffle
 - [x] Add a feature that can continewously play music
 - [ ] Playlist
 - [ ] Repeat feature
-- [ ] !help to show all commands
+- [x] !help to show all commands
 - [ ]
 - [ ]
 - [ ]

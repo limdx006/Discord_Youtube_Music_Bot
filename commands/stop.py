@@ -1,16 +1,6 @@
-# commands/stop.py
-import discord
-from discord.ext import commands
-from collections import deque
-
 def setup_stop(bot, get_state, log):
     """
     Sets up the stop command.
-    
-    Parameters:
-    - bot: The discord bot instance
-    - get_state: Function to get guild state
-    - log: Function to log messages
     """
     
     @bot.command(name="stop")

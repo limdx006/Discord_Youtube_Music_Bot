@@ -1,4 +1,12 @@
-# commands/__init__.py
-# This makes 'commands' a Python package
 from .help import setup_help
+from .play import setup_play
+from .skip import setup_skip
+from .queue_cmd import setup_queue
+from .pause import setup_pause
+from .resume import setup_resume
+from .volume import setup_volume
 from .stop import setup_stop
+from .leave import setup_leave
+from .autoplay import setup_autoplay
+from .shuffle import setup_shuffle
+from .lyrics import setup_lyrics

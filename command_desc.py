@@ -7,7 +7,6 @@ COMMAND_DESCRIPTIONS = {
     'volume': 'Set the playback volume (0-100).',
     'stop': 'Stop playback and clear the queue.',
     'leave': 'Disconnect the bot from the voice channel.',
-    'nowplaying': 'Show information about the current song.',
     'autoplay': 'Toggle autoplay mode (radio) when queue ends.',
     'shuffle': 'Randomly shuffle the current queue.',
     'lyrics': 'Fetch lyrics for current song or search term.',
