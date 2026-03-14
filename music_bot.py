@@ -13,6 +13,8 @@ COMMANDS:
   !stop                                — stop and clear queue
   !leave                               — kick bot from voice channel
   !lyrics [song name]                  — show lyrics (current song or search)
+  !radio                               — toggle autoplay of related songs when queue runs out
+  !shuffle                             — randomly shuffle the current queue
 ================================================================================
 """
 
@@ -30,6 +32,11 @@ import random
 from bot_token import (
     BOT_TOKEN,
 )  # Import the bot token from a separate file for security
+from command_desc import (
+    COMMAND_DESCRIPTIONS,
+)  # Import command descriptions for the help command from a separate file
+
+from commands import *
 
 # ── Colour palette (dark Discord-style) ──────────────────────────────────────
 BG = "#1e1f22"
@@ -133,13 +140,13 @@ def get_state(guild_id):
     # Returns the per-guild state dict, creating it with defaults if it doesn't exist yet
     if guild_id not in guild_state:
         guild_state[guild_id] = {
-            "queue":        deque(),
-            "volume":       VOLUME,
+            "queue": deque(),
+            "volume": VOLUME,
             "current_song": None,
-            "prefetched":   None,    # next track with stream URL already resolved
-            "autoplay":     False,   # auto-queue related songs when queue runs out
-            "last_webpage": None,    # webpage_url of last played song for autoplay seed
-            "recent_played": [],     # list of video IDs played recently (avoid repeats)
+            "prefetched": None,  # next track with stream URL already resolved
+            "autoplay": False,  # auto-queue related songs when queue runs out
+            "last_webpage": None,  # webpage_url of last played song for autoplay seed
+            "recent_played": [],  # list of video IDs played recently (avoid repeats)
         }
     return guild_state[guild_id]
 
@@ -198,13 +205,13 @@ async def fetch_related(webpage_url: str, exclude_ids: list = None) -> dict | No
     loop = asyncio.get_event_loop()
     exclude_ids = exclude_ids or []
     YDL_RELATED = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': True,
-        'playlistend': 25,   # fetch more candidates so we have room to skip recent ones
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "playlistend": 25,  # fetch more candidates so we have room to skip recent ones
     }
     try:
-        vid_id = webpage_url.split('v=')[-1].split('&')[0]
+        vid_id = webpage_url.split("v=")[-1].split("&")[0]
         radio_url = f"https://www.youtube.com/watch?v={vid_id}&list=RD{vid_id}"
         with yt_dlp.YoutubeDL(YDL_RELATED) as ydl:
             info = await loop.run_in_executor(
@@ -212,31 +219,34 @@ async def fetch_related(webpage_url: str, exclude_ids: list = None) -> dict | No
             )
         if not info:
             return None
-        entries = info.get('entries', [])
+        entries = info.get("entries", [])
         # Skip entry[0] (seed song) and any recently played IDs
         for e in entries[1:]:
-            if not e or not e.get('id'):
+            if not e or not e.get("id"):
                 continue
-            if e['id'] in exclude_ids:
-                log(f"Autoplay skipping recently played: {e.get('title', e['id'])}", "info")
+            if e["id"] in exclude_ids:
+                log(
+                    f"Autoplay skipping recently played: {e.get('title', e['id'])}",
+                    "info",
+                )
                 continue
             return {
-                'title':          e.get('title', 'Unknown'),
-                'duration':       e.get('duration', 0),
-                'webpage_url':    f"https://www.youtube.com/watch?v={e['id']}",
-                'url':            f"https://www.youtube.com/watch?v={e['id']}",
-                '_needs_resolve': True,
+                "title": e.get("title", "Unknown"),
+                "duration": e.get("duration", 0),
+                "webpage_url": f"https://www.youtube.com/watch?v={e['id']}",
+                "url": f"https://www.youtube.com/watch?v={e['id']}",
+                "_needs_resolve": True,
             }
         # All candidates were recently played — fall back to the first non-seed entry
         log("Autoplay: all related songs recently played, looping back.", "warn")
         for e in entries[1:]:
-            if e and e.get('id'):
+            if e and e.get("id"):
                 return {
-                    'title':          e.get('title', 'Unknown'),
-                    'duration':       e.get('duration', 0),
-                    'webpage_url':    f"https://www.youtube.com/watch?v={e['id']}",
-                    'url':            f"https://www.youtube.com/watch?v={e['id']}",
-                    '_needs_resolve': True,
+                    "title": e.get("title", "Unknown"),
+                    "duration": e.get("duration", 0),
+                    "webpage_url": f"https://www.youtube.com/watch?v={e['id']}",
+                    "url": f"https://www.youtube.com/watch?v={e['id']}",
+                    "_needs_resolve": True,
                 }
         return None
     except Exception as e:
@@ -298,21 +308,30 @@ def play_next(guild_id, vc, ctx):
     if not state["queue"]:
         if state.get("autoplay") and state.get("last_webpage"):
             log("Queue empty — autoplay fetching related song...", "info")
+
             async def _autoplay():
-                related = await fetch_related(state["last_webpage"], exclude_ids=list(state.get("recent_played", [])))
+                related = await fetch_related(
+                    state["last_webpage"],
+                    exclude_ids=list(state.get("recent_played", [])),
+                )
                 if related:
                     resolved = await resolve_stream(related)
                     state["queue"].append(resolved)
                     log(f"Autoplay queued: {resolved.get('title', '?')}", "success")
                     asyncio.run_coroutine_threadsafe(
-                        ctx.send(f"🔁 Autoplay: **{resolved.get('title', '?')}**"), bot.loop
+                        ctx.send(f"🔁 Autoplay: **{resolved.get('title', '?')}**"),
+                        bot.loop,
                     )
                     play_next(guild_id, vc, ctx)
                 else:
                     asyncio.run_coroutine_threadsafe(
-                        ctx.send("✅ Queue finished! (Autoplay couldn't find a related song)"), bot.loop
+                        ctx.send(
+                            "✅ Queue finished! (Autoplay couldn't find a related song)"
+                        ),
+                        bot.loop,
                     )
                     state["current_song"] = None
+
             asyncio.run_coroutine_threadsafe(_autoplay(), bot.loop)
         else:
             asyncio.run_coroutine_threadsafe(ctx.send("✅ Queue finished!"), bot.loop)
@@ -459,7 +478,10 @@ async def play(ctx, *, query: str):
         state["queue"].append(info)
         play_next(ctx.guild.id, vc, ctx)
 
+setup_help(bot, PREFIX, COMMAND_DESCRIPTIONS)
 
+
+# Skip feature: stops current track to trigger after_play callback which advances the queue
 @bot.command(name="skip", aliases=["s", "next"])
 async def skip(ctx):
     # Stops the current track so the after_play callback can advance to the next queued song
@@ -568,6 +590,7 @@ async def nowplaying(ctx):
 
 # ── AUTOPLAY COMMAND ─────────────────────────────────────────────────────────
 
+
 @bot.command(name="autoplay", aliases=["ap", "radio", "auto"])
 async def autoplay(ctx):
     """Toggle autoplay mode — bot keeps queuing related songs when queue runs out."""
@@ -586,21 +609,22 @@ async def autoplay(ctx):
 
 # ── SHUFFLE COMMAND ──────────────────────────────────────────────────────────
 
-@bot.command(name='shuffle', aliases=['sh'])
+
+@bot.command(name="shuffle", aliases=["sh"])
 async def shuffle(ctx):
     """Randomly shuffle the current queue."""
     state = get_state(ctx.guild.id)
-    if len(state['queue']) < 2:
+    if len(state["queue"]) < 2:
         return await ctx.send("❌ Need at least 2 songs in the queue to shuffle.")
-    q_list = list(state['queue'])
+    q_list = list(state["queue"])
     random.shuffle(q_list)
-    state['queue'] = deque(q_list)
+    state["queue"] = deque(q_list)
     prefetch_next(ctx.guild.id)
     log(f"Queue shuffled ({len(q_list)} songs).", "info")
     await ctx.send(f"🔀 Shuffled **{len(q_list)} songs** in the queue!")
 
 
-# ── NEW: LYRICS COMMAND ───────────────────────────────────────────────────────
+# ── LYRICS COMMAND ───────────────────────────────────────────────────────
 
 
 @bot.command(name="lyrics", aliases=["ly", "l"])

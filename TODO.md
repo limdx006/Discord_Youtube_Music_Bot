@@ -5,7 +5,7 @@ Need to implement:
 - [x] Add a feature that can continewously play music
 - [ ] Playlist
 - [ ] Repeat feature
-- [ ]
+- [ ] !help to show all commands
 - [ ]
 - [ ]
 - [ ]
