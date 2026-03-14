@@ -26,6 +26,7 @@ import queue
 import datetime
 import os
 import re
+import random
 from bot_token import (
     BOT_TOKEN,
 )  # Import the bot token from a separate file for security
@@ -581,6 +582,22 @@ async def autoplay(ctx):
     else:
         log("Autoplay OFF.", "info")
         await ctx.send("⏹️ **Autoplay OFF** — queue will stop when empty.")
+
+
+# ── SHUFFLE COMMAND ──────────────────────────────────────────────────────────
+
+@bot.command(name='shuffle', aliases=['sh'])
+async def shuffle(ctx):
+    """Randomly shuffle the current queue."""
+    state = get_state(ctx.guild.id)
+    if len(state['queue']) < 2:
+        return await ctx.send("❌ Need at least 2 songs in the queue to shuffle.")
+    q_list = list(state['queue'])
+    random.shuffle(q_list)
+    state['queue'] = deque(q_list)
+    prefetch_next(ctx.guild.id)
+    log(f"Queue shuffled ({len(q_list)} songs).", "info")
+    await ctx.send(f"🔀 Shuffled **{len(q_list)} songs** in the queue!")
 
 
 # ── NEW: LYRICS COMMAND ───────────────────────────────────────────────────────
